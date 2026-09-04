@@ -1,75 +1,28 @@
 ---
-description: View learned instincts with confidence scores
+description: Show learned instincts (project + global) with confidence
 agent: build
 ---
 
 # Instinct Status Command
 
-Display learned instincts and their confidence scores: $ARGUMENTS
+Show instinct status from continuous-learning-v2: $ARGUMENTS
 
 ## Your Task
 
-Read and display instincts from the continuous-learning-v2 system.
+Resolve the active ECC plugin root with the same walker `hooks/hooks.json`
+uses (env var → standard install → known plugin roots → plugin cache →
+fallback), then run the instinct CLI. This avoids reading a stale legacy
+`~/.claude/skills/continuous-learning-v2/` install when the plugin is
+active under `~/.claude/plugins/cache/...` (#2037).
 
-## Instinct Location
-
-Global: `~/.claude/instincts/`
-Project: `.claude/instincts/`
-
-## Status Display
-
-### Instinct Summary
-
-| Category | Count | Avg Confidence |
-|----------|-------|----------------|
-| Coding | X | 0.XX |
-| Testing | X | 0.XX |
-| Security | X | 0.XX |
-| Git | X | 0.XX |
-
-### High Confidence Instincts (>0.8)
-
-```
-[trigger] → [action] (confidence: 0.XX)
+```bash
+ECC_ROOT="${CLAUDE_PLUGIN_ROOT:-$(node -e "var r=(function(){var p=require('path'),f=require('fs'),o=require('os');var e=process.env.CLAUDE_PLUGIN_ROOT;if(e&&e.trim())return e.trim();var d=p.join(o.homedir(),'.claude');function L(x){try{return require(p.join(x,'scripts','lib','resolve-ecc-root')).resolveEccRoot()}catch(_){return null}}var r=L(d);if(r)return r;var s=['ecc','ecc@ecc','marketplaces/ecc','everything-claude-code','everything-claude-code@everything-claude-code','marketplaces/everything-claude-code'];for(var i=0;i<s.length;i++){r=L(p.join(d,'plugins',s[i]));if(r)return r}try{var g=['ecc','everything-claude-code'];for(var j=0;j<g.length;j++){var c=p.join(d,'plugins','cache',g[j]);var O=f.readdirSync(c);for(var k=0;k<O.length;k++){var q=p.join(c,O[k]);var V=f.readdirSync(q);for(var m=0;m<V.length;m++){r=L(p.join(q,V[m]));if(r)return r}}}}catch(_){}return d})();console.log(r)")}"
+python3 "$ECC_ROOT/skills/continuous-learning-v2/scripts/instinct-cli.py" status
 ```
 
-### Learning Progress
+## Behavior Notes
 
-- Total instincts: X
-- This session: X
-- Promoted to skills: X
-
-### Recent Instincts
-
-Last 5 instincts learned:
-
-1. **[timestamp]** - [trigger] → [action]
-2. **[timestamp]** - [trigger] → [action]
-...
-
-## Instinct Structure
-
-```json
-{
-  "id": "instinct-123",
-  "trigger": "When I see a try-catch without specific error type",
-  "action": "Suggest using specific error types for better handling",
-  "confidence": 0.75,
-  "applications": 5,
-  "successes": 4,
-  "source": "session-observation",
-  "timestamp": "2025-01-15T10:30:00Z"
-}
-```
-
-## Confidence Calculation
-
-```
-confidence = (successes + 1) / (applications + 2)
-```
-
-Bayesian smoothing ensures new instincts don't have extreme confidence.
-
----
-
-**TIP**: Use `/evolve` to cluster related instincts into skills when confidence is high.
+- Output includes both project-scoped and global instincts.
+- Project instincts override global instincts when IDs conflict.
+- Output is grouped by domain with confidence bars.
+- This command does not support extra filters in v2.1.

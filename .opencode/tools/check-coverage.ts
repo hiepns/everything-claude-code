@@ -5,11 +5,11 @@
  * Supports common coverage report formats.
  */
 
-import { tool } from "@opencode-ai/plugin"
+import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import * as path from "path"
 import * as fs from "fs"
 
-export default tool({
+const checkCoverageTool: ToolDefinition = tool({
   description:
     "Check test coverage against a threshold and identify files with low coverage. Reads coverage reports from common locations.",
   args: {
@@ -58,13 +58,13 @@ export default tool({
     }
 
     if (!coverageData) {
-      return {
+      return JSON.stringify({
         success: false,
         error: "No coverage report found",
         suggestion:
           "Run tests with coverage first: npm test -- --coverage",
         searchedPaths: coveragePaths,
-      }
+      })
     }
 
     const passed = coverageData.total.percentage >= threshold
@@ -96,9 +96,11 @@ export default tool({
         .join("\n")}`
     }
 
-    return result
+    return JSON.stringify(result)
   },
 })
+
+export default checkCoverageTool
 
 interface CoverageSummary {
   total: {

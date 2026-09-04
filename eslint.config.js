@@ -2,6 +2,9 @@ const js = require('@eslint/js');
 const globals = require('globals');
 
 module.exports = [
+    {
+        ignores: ['.opencode/dist/**', '.cursor/**', 'node_modules/**', '.venv/**', 'venv/**', 'coverage/**', 'workflows/**/*.workflow.*', '.claude/workflows/**']
+    },
     js.configs.recommended,
     {
         languageOptions: {
@@ -20,6 +23,12 @@ module.exports = [
             }],
             'no-undef': 'error',
             'eqeqeq': 'warn'
+        }
+    },
+    {
+        files: ['**/*.mjs'],
+        languageOptions: {
+            sourceType: 'module'
         }
     }
 ];

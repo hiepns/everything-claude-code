@@ -1,6 +1,6 @@
 # Migration Guide: Claude Code to OpenCode
 
-This guide helps you migrate from Claude Code to OpenCode while using the Everything Claude Code (ECC) configuration.
+This guide helps you migrate from Claude Code to OpenCode while using the ECC configuration.
 
 ## Overview
 
@@ -148,7 +148,7 @@ You are an expert planning specialist...
       "description": "Expert planning specialist...",
       "mode": "subagent",
       "model": "anthropic/claude-opus-4-5",
-      "prompt": "{file:.opencode/prompts/agents/planner.txt}",
+      "prompt": "{file:prompts/agents/planner.txt}",
       "tools": { "read": true, "bash": true }
     }
   }
@@ -213,9 +213,9 @@ Create a detailed implementation plan for: $ARGUMENTS
 ```json
 {
   "instructions": [
-    ".opencode/instructions/INSTRUCTIONS.md",
-    "rules/security.md",
-    "rules/coding-style.md"
+    "instructions/INSTRUCTIONS.md",
+    "rules/common/security.md",
+    "rules/common/coding-style.md"
   ]
 }
 ```
@@ -258,6 +258,8 @@ After migration, ALL 23 commands are available:
 | `/instinct-import` | Import instincts |
 | `/instinct-export` | Export instincts |
 | `/evolve` | Cluster instincts into skills |
+| `/promote` | Promote project instincts to global scope |
+| `/projects` | List known projects and instinct stats |
 
 ## Available Agents
 
@@ -285,15 +287,24 @@ The `.opencode/` directory contains everything pre-configured.
 ### Option 2: Install as npm Package
 
 ```bash
-npm install opencode-ecc
+npm install ecc-universal
 ```
 
 Then in your `opencode.json`:
 ```json
 {
-  "plugin": ["opencode-ecc"]
+  "plugin": ["ecc-universal"]
 }
 ```
+
+This only loads the published ECC OpenCode plugin module (hooks/events and exported plugin tools).
+It does **not** automatically inject ECC's full `agent`, `command`, or `instructions` config into your project.
+
+If you want the full ECC OpenCode workflow surface, use the repository's bundled `.opencode/opencode.json` as your base config or copy these pieces into your project:
+- `.opencode/commands/`
+- `.opencode/prompts/`
+- `.opencode/instructions/INSTRUCTIONS.md`
+- the `agent` and `command` sections from `.opencode/opencode.json`
 
 ## Troubleshooting
 
@@ -320,6 +331,7 @@ Then in your `opencode.json`:
 1. Verify the command is defined in `opencode.json` or as `.md` file in `.opencode/commands/`
 2. Check the referenced agent exists
 3. Ensure the template uses `$ARGUMENTS` for user input
+4. If you installed only `plugin: ["ecc-universal"]`, note that npm plugin install does not auto-add ECC commands or agents to your project config
 
 ## Best Practices
 
@@ -341,16 +353,16 @@ If you need to switch back:
 
 | Feature | Claude Code | OpenCode | Status |
 |---------|-------------|----------|--------|
-| Agents | ✅ 12 agents | ✅ 12 agents | **Full parity** |
-| Commands | ✅ 23 commands | ✅ 23 commands | **Full parity** |
-| Skills | ✅ 16 skills | ✅ 16 skills | **Full parity** |
-| Hooks | ✅ 3 phases | ✅ 20+ events | **OpenCode has MORE** |
-| Rules | ✅ 8 rules | ✅ 8 rules | **Full parity** |
-| MCP Servers | ✅ Full | ✅ Full | **Full parity** |
-| Custom Tools | ✅ Via hooks | ✅ Native support | **OpenCode is better** |
+| Agents | PASS: 12 agents | PASS: 12 agents | **Full parity** |
+| Commands | PASS: 23 commands | PASS: 23 commands | **Full parity** |
+| Skills | PASS: 16 skills | PASS: 16 skills | **Full parity** |
+| Hooks | PASS: 3 phases | PASS: 20+ events | **OpenCode has MORE** |
+| Rules | PASS: 8 rules | PASS: 8 rules | **Full parity** |
+| MCP Servers | PASS: Full | PASS: Full | **Full parity** |
+| Custom Tools | PASS: Via hooks | PASS: Native support | **OpenCode is better** |
 
 ## Feedback
 
 For issues specific to:
 - **OpenCode CLI**: Report to OpenCode's issue tracker
-- **ECC Configuration**: Report to [github.com/affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code)
+- **ECC Configuration**: Report to [github.com/affaan-m/ECC](https://github.com/affaan-m/ECC)

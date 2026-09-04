@@ -1,6 +1,7 @@
 ---
 name: python-patterns
-description: Pythonic 惯用法、PEP 8 标准、类型提示以及构建健壮、高效、可维护的 Python 应用程序的最佳实践。
+description: Pythonic 惯用法、PEP 8 标准、类型提示以及构建稳健、高效且可维护的 Python 应用程序的最佳实践。
+origin: ECC
 ---
 
 # Python 开发模式
@@ -56,14 +57,14 @@ Python 倾向于使用异常处理而非检查条件。
 
 ```python
 # Good: EAFP style
-def get_value(dictionary: dict, key: str) -> Any:
+def get_value(dictionary: dict, key: str, default_value: Any = None) -> Any:
     try:
         return dictionary[key]
     except KeyError:
         return default_value
 
 # Bad: LBYL (Look Before You Leap) style
-def get_value(dictionary: dict, key: str) -> Any:
+def get_value(dictionary: dict, key: str, default_value: Any = None) -> Any:
     if key in dictionary:
         return dictionary[key]
     else:

@@ -5,11 +5,11 @@
  * Automatically detects the package manager and test framework.
  */
 
-import { tool } from "@opencode-ai/plugin"
+import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import * as path from "path"
 import * as fs from "fs"
 
-export default tool({
+const runTestsTool: ToolDefinition = tool({
   description:
     "Run the test suite with optional coverage, watch mode, or specific test patterns. Automatically detects package manager (npm, pnpm, yarn, bun) and test framework.",
   args: {
@@ -82,7 +82,7 @@ export default tool({
 
     const command = cmd.join(" ")
 
-    return {
+    return JSON.stringify({
       command,
       packageManager,
       testFramework,
@@ -93,9 +93,11 @@ export default tool({
         updateSnapshots: updateSnapshots || false,
       },
       instructions: `Run this command to execute tests:\n\n${command}`,
-    }
+    })
   },
 })
+
+export default runTestsTool
 
 async function detectPackageManager(cwd: string): Promise<string> {
   const lockFiles: Record<string, string> = {
