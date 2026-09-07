@@ -49,8 +49,24 @@ outside this patch.
 - No remote v2.2.1 tag; registry lookup returns E404 for ecc-universal@2.2.1.
 - Registry latest is 2.2.0. No local GPG private signing key or loaded SSH agent
   identity was available in the initial check. Signing remains an open gate.
-- #2961 head db88758cbdadf214728d5ea028fa5705453d6ffc is mergeable with hosted
-  checks passing; independent review is in progress.
+- Independent review found that a later scalar assignment could mask an earlier
+  unresolved PowerShell invocation in #2961. Commit bf0ac4e4 closes that bypass;
+  52 classifier cases and 253 hook cases pass. Updated hosted checks are pending.
+
+## Reviewed integration candidates
+
+| Area | Source | Verification and scope |
+| --- | --- | --- |
+| Hook truncation | #2925, #2924 | 37 direct-entrypoint cases, 16 MiB bounded input, existing production limits preserved |
+| Pi recursive spawning | #2911, #2909 | 28 adapter and 7 actual adapter-boundary tests, never launches compiled OMP as Node |
+| GateGuard exemptions | #2979, #2921 | 192 cases; relative globs constrained to project, explicit absolute globs retained |
+| Plugin dependency loading | #2994, #2822 | 10 cases; help/list paths need no third-party modules, required dependency failures are explicit |
+| Yarn dependency security | Dependabot alert #62 | toml 4.3.0 matches npm lock; immutable Yarn install and recursive audit pass |
+
+Plugin dependency handling does not bundle or automatically install modules.
+Database and schema-validation features still require declared runtime packages.
+The high-priority installer and manual Claude registration candidates remain
+under independent review and have not yet been included in this integration.
 
 ## Completion evidence
 
