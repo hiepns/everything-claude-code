@@ -51,7 +51,7 @@ function escapeAnnotation(value, property = false) {
 function annotateFailure(displayPath, reason, output) {
   if (process.env.GITHUB_ACTIONS !== 'true') return;
   const context = output.split(/\r?\n/)
-    .filter(line => /\b(?:FAIL|[A-Za-z]*Error)\b|[✗❌]/i.test(line))
+    .filter(line => /^\s*(?:FAIL\b|not ok\b|[A-Za-z]*Error\b|[\u2717\u274c])/i.test(line))
     .slice(0, 3)
     .join('\n');
   const message = [reason, context].filter(Boolean).join(': ').slice(0, 1000);

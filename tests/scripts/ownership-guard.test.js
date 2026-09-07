@@ -71,11 +71,15 @@ for (const adapter of listInstallTargetAdapters()) {
 
 test('Antigravity transforms preserve a conflicting agent and still update managed files', context => {
   const plan = createManifestInstallPlan({ ...context, target: 'antigravity', moduleIds: ['agents-core'] });
-  const userOperation = plan.operations.find(item => item.sourceRelativePath === 'agents/architect.md');
+  const userOperation = plan.operations.find(item => (
+    item.sourceRelativePath.replace(/\\/g, '/') === 'agents/architect.md'
+  ));
+  assert.ok(userOperation, 'agent plan must include the architect source on every platform');
   fs.mkdirSync(path.dirname(userOperation.destinationPath), { recursive: true });
   fs.writeFileSync(userOperation.destinationPath, 'My architect\n');
   applyInstallPlan(plan);
   const managed = plan.operations.find(item => item.destinationPath !== userOperation.destinationPath);
+  assert.ok(managed, 'agent plan must also include a separately managed file');
   const original = fs.readFileSync(managed.destinationPath, 'utf8');
   fs.writeFileSync(managed.destinationPath, 'old managed version\n');
   applyInstallPlan(plan);

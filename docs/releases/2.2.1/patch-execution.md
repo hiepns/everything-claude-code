@@ -121,7 +121,7 @@ returned HTTP 401 from redirected storage. Check metadata confirms failures
 occur during tests after successful dependency installation. Failed-suite
 annotations now expose bounded diagnostic context through the checks API.
 The runner also counts subprocess failure when a suite prints `Failed: 0`.
-Seven isolated runner regressions pass.
+Eight isolated runner regressions pass.
 
 Follow-up review reproduced additional release defects. Ordered JSON merges
 to one Kimi destination were collapsed by destination-only preview indexing;
@@ -132,3 +132,12 @@ and 36 existing settings tests pass). Static PowerShell alias and stdin values
 are resolved conservatively, with independent review covering mixed named and
 positional alias arguments. Hosted verification on the final patch remains
 required before merge or release.
+
+Run 34164970113 on 14e731c6 exposed the Windows failure through the new check
+annotations: the Antigravity ownership fixture searched a native Windows source
+path using a POSIX-only literal, then dereferenced a missing operation. The
+fixture now normalizes separators and asserts both planned operations exist;
+all 23 ownership tests pass locally. The diagnostic matcher also uses escaped
+Unicode literals to satisfy the repository's Unicode gate, and excludes passing
+error-handling case names from failure excerpts. Fresh hosted validation must
+confirm these final fixture and diagnostic corrections.

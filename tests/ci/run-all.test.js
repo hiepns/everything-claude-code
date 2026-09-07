@@ -84,6 +84,13 @@ const tests = [
     assert.strictEqual(result.status, 1);
     assert.match(result.annotations[0], /SIGTERM/);
   }],
+  ['passing error-handling cases cannot hide the actual failure', () => {
+    const output = `${'PASS handles Error conditions\n'.repeat(5)}FAIL actual regression\n    AssertionError: mismatch\nFailed: 1`;
+    const result = run({ status: 1, stdout: output });
+    assert.match(result.annotations[0], /FAIL actual regression/);
+    assert.match(result.annotations[0], /AssertionError: mismatch/);
+    assert.ok(!result.annotations[0].includes('PASS handles'));
+  }],
   ['healthy suites preserve successful totals and emit no annotation', () => {
     const result = run({ status: 0, stdout: 'Passed: 3, Failed: 0' });
     assert.strictEqual(result.status, 0);
