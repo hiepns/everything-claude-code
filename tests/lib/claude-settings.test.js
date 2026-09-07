@@ -56,16 +56,25 @@ function assertAtomicParentReplacementRejected(stage) {
   const settingsPath = path.join(targetRoot, 'settings.json');
   const victimPath = path.join(victimRoot, 'settings.json');
   const originalOpen = fs.openSync;
-  const originalFsync = fs.fsyncSync;
+  const originalClose = fs.closeSync;
   const targetContent = '{"target":true}\n';
   const victimContent = '{"victim":"preserve"}\n';
   let tempDescriptor;
   let tempBasename;
+  let replacementAttempted = false;
+  let replacementBlocked = false;
   let replaced = false;
   const replaceParent = () => {
-    replaced = true;
-    fs.renameSync(targetRoot, parkedRoot);
+    replacementAttempted = true;
+    try {
+      fs.renameSync(targetRoot, parkedRoot);
+    } catch (error) {
+      replacementBlocked = process.platform === 'win32'
+        && ['EPERM', 'EACCES'].includes(error.code);
+      throw error;
+    }
     fs.symlinkSync(victimRoot, targetRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    replaced = true;
     // A colliding path in the replacement directory must survive error cleanup.
     fs.writeFileSync(path.join(victimRoot, tempBasename), 'unrelated replacement file');
   };
@@ -76,35 +85,57 @@ function assertAtomicParentReplacementRejected(stage) {
     fs.writeFileSync(victimPath, victimContent);
     fs.openSync = function(file, flags, ...args) {
       const isTemp = typeof file === 'string'
+        && path.dirname(path.resolve(file)) === targetRoot
         && path.basename(file).startsWith('.settings.json.') && file.endsWith('.tmp');
       if (isTemp) tempBasename = path.basename(file);
       if (isTemp && !replaced && stage === 'open') {
         // Replace immediately after the temporary descriptor has been created.
         const descriptor = originalOpen.call(fs, file, flags, ...args);
         tempDescriptor = descriptor;
-        replaceParent();
+        try {
+          replaceParent();
+        } catch (error) {
+          // The writer has not received this handle yet. If Windows refuses
+          // the directory rename, the fixture must close its own descriptor.
+          originalClose.call(fs, descriptor);
+          throw error;
+        }
         return descriptor;
       }
       const descriptor = originalOpen.call(fs, file, flags, ...args);
       if (isTemp) tempDescriptor = descriptor;
       return descriptor;
     };
-    fs.fsyncSync = function(descriptor) {
-      const result = originalFsync.call(fs, descriptor);
-      if (!replaced && stage === 'rename' && descriptor === tempDescriptor) replaceParent();
+    fs.closeSync = function(descriptor) {
+      const result = originalClose.call(fs, descriptor);
+      // At the rename boundary the staging handle has been closed. Windows
+      // can now replace the parent, exercising ECC's identity check too.
+      if (!replacementAttempted && stage === 'rename' && descriptor === tempDescriptor) replaceParent();
       return result;
     };
     assert.throws(
       () => updateSettingsAtomic(settingsPath, settings => ({ settings: { ...settings, managed: true } })),
-      /parent.*changed|changed.*parent/i
+      error => /parent.*changed|changed.*parent/i.test(error.message)
+        || (replacementBlocked && ['EPERM', 'EACCES'].includes(error.code))
     );
-    assert.ok(replaced, 'must exercise a replacement inside the atomic writer');
+    assert.ok(replacementAttempted, 'must attempt replacement inside the atomic writer');
+    assert.throws(() => fs.fstatSync(tempDescriptor), error => error.code === 'EBADF',
+      'every staging descriptor must be closed after rejection');
     assert.strictEqual(fs.readFileSync(victimPath, 'utf8'), victimContent);
-    assert.strictEqual(fs.readFileSync(path.join(parkedRoot, 'settings.json'), 'utf8'), targetContent);
-    assert.strictEqual(fs.readFileSync(path.join(victimRoot, tempBasename), 'utf8'), 'unrelated replacement file');
+    if (replacementBlocked) {
+      assert.strictEqual(stage, 'open', 'rename-stage replacement happens after closing the staging handle');
+      assert.strictEqual(replaced, false);
+      assert.strictEqual(fs.readFileSync(settingsPath, 'utf8'), targetContent);
+      assert.deepStrictEqual(fs.readdirSync(targetRoot), ['settings.json']);
+      assert.deepStrictEqual(fs.readdirSync(victimRoot), ['settings.json']);
+    } else {
+      assert.ok(replaced, 'a permitted replacement must reach the parent identity check');
+      assert.strictEqual(fs.readFileSync(path.join(parkedRoot, 'settings.json'), 'utf8'), targetContent);
+      assert.strictEqual(fs.readFileSync(path.join(victimRoot, tempBasename), 'utf8'), 'unrelated replacement file');
+    }
   } finally {
     fs.openSync = originalOpen;
-    fs.fsyncSync = originalFsync;
+    fs.closeSync = originalClose;
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
