@@ -28,6 +28,11 @@ const {
   removeLegacyClaudeSkillFiles,
 } = require('./claude-skill-migration');
 const { cleanupLegacyAntigravityInstall } = require('./antigravity-legacy-migration');
+const {
+  assertNoNewUserOwnedFile,
+  prepareUserOwnedFileGuard,
+  preserveUnwrittenFiles,
+} = require('./ownership-guard');
 const { cleanupLegacyOpencodeInstall } = require('./opencode-legacy-migration');
 const { buildInstallIndex, rewriteRelativeLinks } = require('./link-rewrite');
 const { adaptAntigravityAgent } = require('./antigravity-agent');
@@ -393,7 +398,7 @@ function prepareHookConsentMigration(plan, migration) {
 function previewInstallPlan(plan) {
   const migration = prepareHookConsentMigration(
     plan,
-    prepareClaudeSkillMigration(plan)
+    prepareUserOwnedFileGuard(plan, prepareClaudeSkillMigration(plan))
   );
   const appliedPlan = {
     ...plan,
@@ -446,7 +451,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
   }
   const migration = prepareHookConsentMigration(
     plan,
-    prepareClaudeSkillMigration(plan)
+    prepareUserOwnedFileGuard(plan, prepareClaudeSkillMigration(plan))
   );
   const appliedPlan = {
     ...plan,
@@ -460,6 +465,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
     operation.kind === 'remove-claude-settings-hooks'
   )).length;
   let completedHookRemovalCount = 0;
+  const writtenDestinations = new Set();
     if (migration.requiresBridgeState) {
       // Own every operation that may be written during a flat-skill migration
       // before the first copy. A later failure is retryable and uninstall can
@@ -485,6 +491,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
       if (typeof beforeOperationWrite === 'function') {
         beforeOperationWrite({ plan: appliedPlan, operation });
       }
+      assertNoNewUserOwnedFile(migration, operation);
 
       if (
         operation.kind === 'update-claude-settings'
@@ -516,6 +523,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
             assertSafeInstallOperation(appliedPlan, operation);
           },
         });
+        writtenDestinations.add(operation.destinationPath);
         if (operation.kind === 'remove-claude-settings-hooks') {
           completedHookRemovalCount += 1;
         }
@@ -540,6 +548,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
         );
         const mergedValue = deepMergeJson(currentValue, filteredPayload);
         fs.writeFileSync(operation.destinationPath, formatJson(mergedValue), 'utf8');
+        writtenDestinations.add(operation.destinationPath);
         continue;
       }
 
@@ -547,6 +556,7 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
         const sourceConfig = readJsonObject(operation.sourcePath, 'MCP config');
         const filteredConfig = filterMcpConfig(sourceConfig, disabledServers).config;
         fs.writeFileSync(operation.destinationPath, formatJson(filteredConfig), 'utf8');
+        writtenDestinations.add(operation.destinationPath);
         continue;
       }
 
@@ -569,10 +579,12 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
           })
           : transformed;
         fs.writeFileSync(operation.destinationPath, installedContent, 'utf8');
+        writtenDestinations.add(operation.destinationPath);
         continue;
       }
 
       fs.copyFileSync(operation.sourcePath, operation.destinationPath);
+      writtenDestinations.add(operation.destinationPath);
       }
 
       if (hasLegacyMigration) {
@@ -600,10 +612,19 @@ function applyInstallPlanLocked(plan, dependencies = {}, settingsLockHeld = fals
           persistInstallState(
             plan.installStatePath,
             stateWithContentDigests(
-              hookRemovalCount > 0 && completedHookRemovalCount === hookRemovalCount
-                ? migration.finalState
-                : migration.bridgeState,
-              appliedPlan
+              preserveUnwrittenFiles(
+                hookRemovalCount > 0 && completedHookRemovalCount === hookRemovalCount
+                  ? migration.finalState
+                  : migration.bridgeState,
+                migration,
+                writtenDestinations
+              ),
+              {
+                ...appliedPlan,
+                operations: appliedPlan.operations.filter(operation => (
+                  writtenDestinations.has(operation.destinationPath)
+                )),
+              }
             )
           );
         } catch (checkpointError) {
