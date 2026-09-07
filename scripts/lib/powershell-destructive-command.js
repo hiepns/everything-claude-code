@@ -1164,6 +1164,13 @@ function createScanState() {
 
 function collectStaticScalarAssignments(input, state) {
   const variable = String.raw`(\$\{[^}]+\}|\$(?:[A-Za-z_][\w-]*:)?[A-Za-z_][\w-]*(?:\[[^\]]+\]|\.[A-Za-z_][\w-]*)*)`;
+  const firstReferences = new Map();
+  const referencePattern = new RegExp(variable, 'g');
+  let reference;
+  while ((reference = referencePattern.exec(input)) !== null) {
+    const name = reference[1].toLowerCase();
+    if (!firstReferences.has(name)) firstReferences.set(name, reference.index);
+  }
   const assignmentCounts = new Map();
   const assignmentPattern = new RegExp(`${variable}\\s*(?:\\+=|-=|\\*=|\\/=|%=|=)`, 'g');
   let assignmentMatch;
@@ -1177,11 +1184,18 @@ function collectStaticScalarAssignments(input, state) {
   );
   let match;
   while ((match = pattern.exec(input)) !== null) {
+    const name = match[1].toLowerCase();
+    // The scan pre-collects immutable scalars for nested executable bodies.
+    // A value assigned after an earlier reference cannot explain that use.
+    // Keep it unresolved so dynamic execution remains gated. Counting even
+    // quoted references is deliberately conservative, with a linear scan.
+    const assignmentIndex = match.index + match[0].indexOf(match[1]);
+    if (firstReferences.get(name) !== assignmentIndex) continue;
     if (match[3] !== undefined && /(^|[^`])\$/.test(match[3])) continue;
     const value = match[2] !== undefined
       ? match[2].replace(/''/g, "'")
       : decodeDoubleQuotedString(match[3]);
-    state.staticScalars.set(match[1].toLowerCase(), value);
+    state.staticScalars.set(name, value);
   }
   for (const [name, count] of assignmentCounts) {
     if (count !== 1) state.staticScalars.delete(name);

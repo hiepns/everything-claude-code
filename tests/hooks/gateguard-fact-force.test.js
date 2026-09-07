@@ -2991,7 +2991,8 @@ function runTests() {
         'cmd /c pwsh -Command "Remove-Item -Force C:/tmp/demo"',
         '@"\n" # $(Remove-Item -Force C:/tmp/demo)\n"@',
         '& ‘Remove-Item’ -Force C:/tmp/demo',
-        'Invoke-Expression $runtimeValue'
+        'Invoke-Expression $runtimeValue',
+        'pwsh -Command "$payload"; $payload = "Write-Output ok"'
       ];
 
       for (const command of commands) {

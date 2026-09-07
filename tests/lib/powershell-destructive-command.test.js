@@ -190,6 +190,22 @@ test('classifies pipeline recursion evidence upstream of Remove-Item', () => {
 
 console.log('\nNested shell payloads:');
 
+test('does not resolve earlier invocations from later scalar assignments', () => {
+  for (const invocation of [
+    'pwsh -Command "$payload"',
+    'pwsh -Command:$payload',
+    'pwsh -EncodedCommand:$payload',
+    'Invoke-Expression $payload',
+    '& $payload',
+  ]) {
+    expectRules(`${invocation}; $payload = 'Write-Output ok'`, [RULES.DYNAMIC_EXECUTION]);
+  }
+  expectRules('pwsh -Command "$payload"; $payload = "Remove-Item -Force C:/tmp/demo"', [
+    RULES.DYNAMIC_EXECUTION,
+  ]);
+  expectSafe('$payload = "Write-Output ok"; pwsh -Command "$payload"');
+});
+
 test('classifies powershell and pwsh command payloads recursively', () => {
   expectRules(
     'powershell -Command "Remove-Item -Recurse C:/tmp/demo"',

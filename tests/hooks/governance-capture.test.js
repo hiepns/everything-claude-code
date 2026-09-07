@@ -252,6 +252,10 @@ async function runTests() {
         expectedRules: ['powershell.dynamic-execution'],
       },
       {
+        command: 'pwsh -Command "$payload"; $payload = "Write-Output ok"',
+        expectedRules: ['powershell.dynamic-execution'],
+      },
+      {
         command: 'pwsh -Command $runtimePayload -Force C:/private/runtime-command-sentinel',
         expectedRules: ['powershell.dynamic-execution'],
       },
