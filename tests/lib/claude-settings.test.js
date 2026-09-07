@@ -48,6 +48,67 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function assertAtomicParentReplacementRejected(stage) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-parent-race-'));
+  const targetRoot = path.join(tempDir, 'target');
+  const parkedRoot = path.join(tempDir, 'parked');
+  const victimRoot = path.join(tempDir, 'victim');
+  const settingsPath = path.join(targetRoot, 'settings.json');
+  const victimPath = path.join(victimRoot, 'settings.json');
+  const originalOpen = fs.openSync;
+  const originalFsync = fs.fsyncSync;
+  const targetContent = '{"target":true}\n';
+  const victimContent = '{"victim":"preserve"}\n';
+  let tempDescriptor;
+  let tempBasename;
+  let replaced = false;
+  const replaceParent = () => {
+    replaced = true;
+    fs.renameSync(targetRoot, parkedRoot);
+    fs.symlinkSync(victimRoot, targetRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    // A colliding path in the replacement directory must survive error cleanup.
+    fs.writeFileSync(path.join(victimRoot, tempBasename), 'unrelated replacement file');
+  };
+  try {
+    fs.mkdirSync(targetRoot);
+    fs.mkdirSync(victimRoot);
+    fs.writeFileSync(settingsPath, targetContent);
+    fs.writeFileSync(victimPath, victimContent);
+    fs.openSync = function(file, flags, ...args) {
+      const isTemp = typeof file === 'string'
+        && path.basename(file).startsWith('.settings.json.') && file.endsWith('.tmp');
+      if (isTemp) tempBasename = path.basename(file);
+      if (isTemp && !replaced && stage === 'open') {
+        // Replace immediately after the temporary descriptor has been created.
+        const descriptor = originalOpen.call(fs, file, flags, ...args);
+        tempDescriptor = descriptor;
+        replaceParent();
+        return descriptor;
+      }
+      const descriptor = originalOpen.call(fs, file, flags, ...args);
+      if (isTemp) tempDescriptor = descriptor;
+      return descriptor;
+    };
+    fs.fsyncSync = function(descriptor) {
+      const result = originalFsync.call(fs, descriptor);
+      if (!replaced && stage === 'rename' && descriptor === tempDescriptor) replaceParent();
+      return result;
+    };
+    assert.throws(
+      () => updateSettingsAtomic(settingsPath, settings => ({ settings: { ...settings, managed: true } })),
+      /parent.*changed|changed.*parent/i
+    );
+    assert.ok(replaced, 'must exercise a replacement inside the atomic writer');
+    assert.strictEqual(fs.readFileSync(victimPath, 'utf8'), victimContent);
+    assert.strictEqual(fs.readFileSync(path.join(parkedRoot, 'settings.json'), 'utf8'), targetContent);
+    assert.strictEqual(fs.readFileSync(path.join(victimRoot, tempBasename), 'utf8'), 'unrelated replacement file');
+  } finally {
+    fs.openSync = originalOpen;
+    fs.fsyncSync = originalFsync;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function runTests() {
   console.log('\n=== Testing install/claude-settings.js ===\n');
 
@@ -220,6 +281,40 @@ function runTests() {
         assert.strictEqual(fs.statSync(settingsPath).mode & 0o777, 0o600);
       }
     } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  })) passed++; else failed++;
+
+  for (const stage of ['open', 'rename']) {
+    if (test(`atomic settings updates reject parent replacement at ${stage} without touching its files`, () => {
+      assertAtomicParentReplacementRejected(stage);
+    })) passed++; else failed++;
+  }
+
+  if (test('atomic settings updates preserve edits made while the replacement file is staged', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-late-edit-'));
+    const settingsPath = path.join(tempDir, 'settings.json');
+    const originalFsync = fs.fsyncSync;
+    let changed = false;
+    let fsyncCalls = 0;
+    try {
+      fs.writeFileSync(settingsPath, '{"theme":"initial"}\n');
+      fs.fsyncSync = function(descriptor) {
+        const result = originalFsync.call(fs, descriptor);
+        // Lock creation is the first fsync; only change settings after the
+        // atomic writer has staged its first replacement payload.
+        fsyncCalls += 1;
+        if (!changed && fsyncCalls === 2) {
+          changed = true;
+          fs.writeFileSync(settingsPath, '{"theme":"late-edit"}\n');
+        }
+        return result;
+      };
+      updateSettingsAtomic(settingsPath, settings => ({ settings: { ...settings, managed: true } }));
+      assert.ok(changed);
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), { theme: 'late-edit', managed: true });
+    } finally {
+      fs.fsyncSync = originalFsync;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   })) passed++; else failed++;

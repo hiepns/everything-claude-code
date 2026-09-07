@@ -389,9 +389,23 @@ function assertSettingsSnapshotUnchanged(settingsPath, snapshot) {
 
 function updateSettingsAtomic(settingsPath, transform, options = {}) {
   const update = () => {
+    const parentPath = path.dirname(path.resolve(settingsPath));
+    const parentStats = fs.lstatSync(parentPath, { bigint: true });
+    const validateParent = () => {
+      const current = fs.lstatSync(parentPath, { bigint: true });
+      if (
+        !current.isDirectory() || current.isSymbolicLink()
+        || current.dev !== parentStats.dev || current.ino !== parentStats.ino
+      ) {
+        const error = new Error(`Claude settings parent directory changed: ${parentPath}`);
+        error.code = 'ECC_SETTINGS_PARENT_CHANGED';
+        throw error;
+      }
+    };
     const maxAttempts = options.maxAttempts || 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        validateParent();
         const snapshot = readSettingsSnapshot(settingsPath);
         const result = transform(snapshot.settings);
         if (typeof options.beforeCommit === 'function') options.beforeCommit();
@@ -399,7 +413,14 @@ function updateSettingsAtomic(settingsPath, transform, options = {}) {
         writeFileAtomic(
           settingsPath,
           `${JSON.stringify(result.settings, null, 2)}\n`,
-          { encoding: 'utf8', mode: snapshot.mode }
+          {
+            encoding: 'utf8',
+            mode: snapshot.mode,
+            validateParent,
+            beforeRename() {
+              assertSettingsSnapshotUnchanged(settingsPath, snapshot);
+            },
+          }
         );
         return result;
       } catch (error) {
