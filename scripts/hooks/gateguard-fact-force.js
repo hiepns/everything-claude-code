@@ -100,11 +100,12 @@ function getExtraDestructiveRegex() {
 }
 
 // Operator-supplied path exemptions. Comma-separated globs (`GATEGUARD_EXEMPT_GLOBS`)
-// matched against the normalized (forward-slash, lowercased) file path. First-touch
+// matched against the normalized project-relative path (or full path for an
+// explicitly absolute glob). First-touch
 // fact-forcing is skipped for a matching Edit/Write/MultiEdit target — intended for
 // low-import-value trees (tests, generated artifacts, scratch dirs) where "who imports
-// this / what schema" carries no signal. Memoized on the env value; fail-open (a
-// malformed pattern is dropped, never throws). `*` matches within a path segment,
+// this / what schema" carries no signal. Memoized on the env value; malformed
+// patterns are dropped without granting exemptions. `*` matches within a path segment,
 // `**` across segments, `?` a single char.
 let exemptCacheKey = null;
 let exemptCacheRegexes = null;
@@ -116,16 +117,24 @@ function getExemptMatchers() {
   exemptCacheKey = raw;
   exemptCacheRegexes = raw
     .split(',')
-    .map(s => s.trim())
+    .map(s => normalizeForMatch(s.trim()))
     .filter(Boolean)
     .map(glob => {
-      const source = glob
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex metachars, keep * and ?
-        .split('**')                           // ** boundaries (cross-segment)
-        .map(part => part.replace(/\*/g, '[^/]*').replace(/\?/g, '.'))
-        .join('.*');                           // ** -> across segments
+      let source = '';
+      for (let index = 0; index < glob.length; index++) {
+        const char = glob[index];
+        if (char === '*' && glob[index + 1] === '*') {
+          index++;
+          if (glob[index + 1] === '/') {
+            source += '(?:.*/)?';
+            index++;
+          } else source += '.*';
+        } else if (char === '*') source += '[^/]*';
+        else if (char === '?') source += '[^/]';
+        else source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      }
       try {
-        return new RegExp(source);
+        return { regex: new RegExp(`^${source}$`), absolute: path.posix.isAbsolute(glob) || path.win32.isAbsolute(glob) };
       } catch (_) {
         return null;
       }
@@ -134,9 +143,17 @@ function getExemptMatchers() {
   return exemptCacheRegexes;
 }
 
-function isExemptPath(filePath) {
-  const norm = normalizeForMatch(filePath);
-  return getExemptMatchers().some(re => re.test(norm));
+function isExemptPath(filePath, data) {
+  const projectRoot = process.env.CLAUDE_PROJECT_DIR || data.cwd || process.cwd();
+  if (typeof projectRoot !== 'string' || typeof filePath !== 'string') return false;
+  const paths = /^[a-z]:[\\/]|^\\\\/i.test(projectRoot) ? path.win32 : path.posix;
+  if (!paths.isAbsolute(projectRoot)) return false;
+  const target = paths.resolve(projectRoot, filePath);
+  const relative = paths.relative(projectRoot, target);
+  const contained = relative !== '..' && !relative.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relative);
+  return getExemptMatchers().some(({ regex, absolute }) =>
+    absolute ? regex.test(normalizeForMatch(target)) : contained && regex.test(normalizeForMatch(relative))
+  );
 }
 
 function isRoutineBashGateDisabled() {
@@ -1206,7 +1223,7 @@ function run(rawInput) {
 
   if (toolName === 'Edit' || toolName === 'Write') {
     const filePath = toolInput.file_path || '';
-    if (!filePath || isClaudeSettingsPath(filePath) || isExemptPath(filePath)) {
+    if (!filePath || isClaudeSettingsPath(filePath) || isExemptPath(filePath, data)) {
       return rawInput; // allow
     }
 
@@ -1239,7 +1256,7 @@ function run(rawInput) {
     const edits = toolInput.edits || [];
     for (const edit of edits) {
       const filePath = edit.file_path || '';
-      if (filePath && !isClaudeSettingsPath(filePath) && !isExemptPath(filePath) && !isChecked(filePath)) {
+      if (filePath && !isClaudeSettingsPath(filePath) && !isExemptPath(filePath, data) && !isChecked(filePath)) {
         const { ok, denials } = markCheckedAndCountDenial(filePath);
         if (!ok) {
           return allowWithStateWarning();

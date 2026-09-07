@@ -2788,7 +2788,7 @@ function runTests() {
         tool_name: 'Edit',
         tool_input: { file_path: '/proj/tests/test_x.js', old_string: 'a', new_string: 'b' }
       };
-      const result = runHook(input, { GATEGUARD_EXEMPT_GLOBS: '**/tests/**' });
+      const result = runHook(input, { GATEGUARD_EXEMPT_GLOBS: '**/tests/**', CLAUDE_PROJECT_DIR: '/proj' });
       assert.strictEqual(result.code, 0, 'exit code should be 0');
       const output = parseOutput(result.stdout);
       assert.ok(output, 'should produce valid JSON output');
@@ -2824,7 +2824,7 @@ function runTests() {
       clearState();
       const exempt = runHook(
         { tool_name: 'Write', tool_input: { file_path: '/tmp/x/scratchpad/s.js', content: 'x' } },
-        { GATEGUARD_EXEMPT_GLOBS: globs }
+        { GATEGUARD_EXEMPT_GLOBS: globs, CLAUDE_PROJECT_DIR: '/tmp/x' }
       );
       const exemptOut = parseOutput(exempt.stdout);
       assert.ok(exemptOut, 'should produce JSON output');
@@ -2858,6 +2858,49 @@ function runTests() {
     })
   )
     passed++;
+  else failed++;
+
+  for (const { glob, filePath, cwd = '/proj', exempt } of [
+    { glob: 'services/**', filePath: '/proj/services/api.js', exempt: true },
+    { glob: 'services/**', filePath: '/other/services/api.js', exempt: false },
+    { glob: 'services/**', filePath: '/proj/vendor/services/api.js', exempt: false },
+    { glob: 'services/**', filePath: '/proj/my-services/api.js', exempt: false },
+    { glob: '*.md', filePath: '/proj/notes.md/outline.txt', exempt: false },
+    { glob: '*.md', filePath: '/proj/docs/notes.md', exempt: false },
+    { glob: '*.md', filePath: '/other/notes.md', exempt: false },
+    { glob: 'README.md', filePath: '/proj/readme.md', exempt: true },
+    { glob: '*.md', filePath: './notes.md', exempt: true },
+    { glob: '**/*.md', filePath: '/proj/docs/notes.md', exempt: true },
+    { glob: '**/*.md', filePath: '/proj/notes.md', exempt: true },
+    { glob: '**/*.md', filePath: '../other/notes.md', exempt: false },
+    { glob: 'docs/?otes.md', filePath: '/proj/docs/notes.md', exempt: true },
+    { glob: 'docs?notes.md', filePath: '/proj/docs/notes.md', exempt: false },
+    { glob: 'services/**', filePath: 'C:\\proj\\services\\api.js', cwd: 'C:\\proj', exempt: true },
+    { glob: 'services/**', filePath: 'C:\\other\\services\\api.js', cwd: 'C:\\proj', exempt: false },
+    { glob: '/approved/docs/**', filePath: '/approved/docs/notes.md', exempt: true },
+  ]) {
+    clearState();
+    if (test(`scopes exempt glob ${glob} for ${filePath}`, () => {
+      const result = runHook(
+        { cwd, tool_name: 'Edit', tool_input: { file_path: filePath } },
+        { GATEGUARD_EXEMPT_GLOBS: glob, CLAUDE_PROJECT_DIR: cwd }
+      );
+      const output = parseOutput(result.stdout);
+      assert.strictEqual(output?.hookSpecificOutput?.permissionDecision === 'deny', !exempt);
+    })) passed++;
+    else failed++;
+  }
+
+  clearState();
+  if (test('MultiEdit gates outside-project targets even when another target is exempt', () => {
+    const result = runHook({
+      cwd: '/proj', tool_name: 'MultiEdit',
+      tool_input: { edits: [{ file_path: '/proj/docs/a.md' }, { file_path: '/other/docs/b.md' }] }
+    }, { GATEGUARD_EXEMPT_GLOBS: 'docs/**', CLAUDE_PROJECT_DIR: '/proj' });
+    const output = parseOutput(result.stdout);
+    assert.strictEqual(output?.hookSpecificOutput?.permissionDecision, 'deny');
+    assert.ok(output.hookSpecificOutput.permissionDecisionReason.includes('/other/docs/b.md'));
+  })) passed++;
   else failed++;
 
   // Cleanup only the temp directory created by this test file.
