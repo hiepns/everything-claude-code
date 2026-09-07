@@ -373,7 +373,9 @@ async function applyPreflightedManagedPlan(entry) {
     : preflightManagedPlan(entry.preview.plan);
   const ownedDestinations = new Set(preview.ownershipSnapshot.destinations);
   let expectedStateFingerprint = preview.ownershipSnapshot.stateFingerprint;
-  let operationIndex = 0;
+  const expectedOperations = new Map(preview.operations.map(operation => [
+    canonicalPath(operation.destinationPath), operation,
+  ]));
   const assertStateUnchanged = () => (
     assertInstallStateUnchanged(preview.plan, expectedStateFingerprint)
   );
@@ -381,26 +383,35 @@ async function applyPreflightedManagedPlan(entry) {
     assertStateUnchanged();
     expectedStateFingerprint = fingerprintInstallStateValue(state);
   };
+  const assertOperationUnchanged = operation => {
+    const destination = canonicalPath(operation.destinationPath);
+    const expected = expectedOperations.get(destination);
+    const currentClassification = classifyManagedOperation(operation, ownedDestinations);
+    if (
+      !expected
+      || expected.kind !== operation.kind
+      || expected.classification !== currentClassification
+    ) {
+      throw new Error(
+        `Refusing to write ${operation.destinationPath}: destination changed after Kimi preflight.`
+      );
+    }
+    return destination;
+  };
 
   const result = require('./install-executor').applyInstallPlan(preview.plan, {
-    beforeInstallStateRead: assertStateUnchanged,
+    beforeInstallStateRead() {
+      assertStateUnchanged();
+      // Check the original preview before ownership filtering can skip a late
+      // collision. Guided setup must report the changed plan as a failure.
+      for (const operation of preview.plan.operations) {
+        assertOperationUnchanged(operation);
+      }
+    },
     beforeOperationWrite({ operation }) {
       assertStateUnchanged();
-      const expected = preview.operations[operationIndex];
-      const currentClassification = classifyManagedOperation(operation, ownedDestinations);
-      const destination = canonicalPath(operation.destinationPath);
-      if (
-        !expected
-        || expected.kind !== operation.kind
-        || canonicalPath(expected.destinationPath) !== destination
-        || expected.classification !== currentClassification
-      ) {
-        throw new Error(
-          `Refusing to write ${operation.destinationPath}: destination changed after Kimi preflight.`
-        );
-      }
+      const destination = assertOperationUnchanged(operation);
       ownedDestinations.add(destination);
-      operationIndex += 1;
     },
     beforeInstallStateWrite: prepareInstallStateWrite,
   });

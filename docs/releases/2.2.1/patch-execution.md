@@ -82,8 +82,26 @@ Successful managed-file upgrades retain their existing replacement semantics.
 
 ## Completion evidence
 
-First batch 82bfd225 passed 4,215/4,215 tests and lint. Integrated full validation
-and hosted checks are pending. Signing remains unavailable locally.
+First batch 82bfd225 passed 4,215/4,215 tests and lint. The first combined run
+at 8cc31f1e passed 4,370/4,372 tests, with 89.27% line and 81.52% branch coverage.
+Its two failures exposed guided setup reporting success after a late collision
+was filtered. Full-preview revalidation fixes that interaction; all 22 guided
+setup tests now pass, including initially identical unowned files before later
+writes. Final full-suite and hosted validation are pending.
+
+Windows hosted checks exposed fixture-owned descriptor cleanup and directory
+rename assumptions in two new settings tests. The repaired fixtures preserve
+Windows OS-refusal assertions and ECC parent-identity checks. CodeQL findings
+338-341 were confined to test-source patterns; minimal assertion/interception
+changes preserve coverage without alert dismissals. Hosted rescanning remains
+required.
+
+The first combined packed artifact passed the isolated macOS lifecycle, 13
+memory MCP regressions, 12 actual Codex/Hermes protocol sessions, and 196
+GateGuard cases including quoted, unquoted, and tab-stripped heredocs. Package
+helpers, public CLI aliases, and dry-run entrypoints were exercised from the
+installed archive, not just the source checkout. Final source must be repacked
+after the guided-setup integration repair. Signing remains unavailable locally.
 
 Pending final hosted validation, signed tag, publication, registry
 integrity readback, and clean lifecycle canaries. This document does not claim

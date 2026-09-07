@@ -14,9 +14,12 @@ and signing evidence are tracked separately in the release checklist.
   absolute exemptions remain supported
   ([#2921](https://github.com/affaan-m/ECC/issues/2921)).
 - Installer writes reject collisions with untracked user-owned files. Failed
-  installs checkpoint only files they actually wrote, preserving the previous
+  installs refresh ownership hashes only for files they actually wrote, preserving the previous
   ownership hashes of untouched managed files
   ([#2964](https://github.com/affaan-m/ECC/issues/2964)).
+- Guided setup revalidates its preview before ownership filtering, so files
+  appearing between preview and apply cause a clear retry instead of a false
+  success. Existing identical user files stay outside ECC ownership.
 - Uninstall respects `ECC_DRY_RUN=1`, including legacy Codex paths, and rejects
   invalid dry-run values instead of silently allowing deletion
   ([#2952](https://github.com/affaan-m/ECC/issues/2952)).

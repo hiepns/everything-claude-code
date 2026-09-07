@@ -569,6 +569,38 @@ function writeManagedState(plan, overrides = {}) {
     }
   });
 
+  await test('preserves an initially identical user file without shifting later write checks', async () => {
+    const root = tempDir('ecc-guided-identical-preserved-');
+    const projection = require('../../scripts/lib/install-state-store-sync');
+    const originalProjection = projection.projectCanonicalInstallState;
+    // This case verifies canonical ownership, not the optional derived cache.
+    projection.projectCanonicalInstallState = async () => ({ status: 'projected' });
+    try {
+      const source = path.join(root, 'source.md');
+      const userFile = path.join(root, '.kimi-code', 'rules', 'existing.md');
+      const newFile = path.join(root, '.kimi-code', 'rules', 'new.md');
+      writeFile(source, 'ecc\n');
+      writeFile(userFile, 'ecc\n');
+      const plan = managedPlan(root, [
+        stateOperation(userFile, { sourcePath: source }),
+        stateOperation(newFile, { sourcePath: source }),
+      ]);
+      const result = await applyMultiHarnessPlan({
+        harnesses: [{ id: 'kimi', preview: preflightManagedPlan(plan) }],
+        request: { harnesses: ['kimi'] },
+      });
+      assert.strictEqual(result.status, 'complete');
+      assert.strictEqual(fs.readFileSync(userFile, 'utf8'), 'ecc\n');
+      assert.strictEqual(fs.readFileSync(newFile, 'utf8'), 'ecc\n');
+      const state = JSON.parse(fs.readFileSync(plan.installStatePath, 'utf8'));
+      assert.ok(!state.operations.some(operation => operation.destinationPath === userFile));
+      assert.ok(state.operations.some(operation => operation.destinationPath === newFile));
+    } finally {
+      projection.projectCanonicalInstallState = originalProjection;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   await test('refuses conflicting JSON created after preview but before apply', async () => {
     const root = tempDir('ecc-guided-late-json-collision-');
     try {
