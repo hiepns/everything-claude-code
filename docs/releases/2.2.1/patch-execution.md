@@ -62,14 +62,29 @@ outside this patch.
 | GateGuard exemptions | #2979, #2921 | 192 cases; relative globs constrained to project, explicit absolute globs retained |
 | Plugin dependency loading | #2994, #2822 | 10 cases; help/list paths need no third-party modules, required dependency failures are explicit |
 | Yarn dependency security | Dependabot alert #62 | toml 4.3.0 matches npm lock; immutable Yarn install and recursive audit pass |
+| PowerShell security | #2961 | 52 classifier cases, combined governance and GateGuard regressions; late-assignment bypass repaired |
+| Manual Claude hooks | #2992, #2982 | 36 settings, 66 lifecycle, 42 install-apply cases; concurrent-edit and observed parent-swap tests |
+| Installer data protection | #2980, #2981, #2956 | 23 ownership, 13 uninstall cases; all 15 target collision checks and failed-checkpoint regressions |
+| Observer retention | #2971, #2673 | Merged cf065358 after 45 green hosted checks and independent review |
+| Harness setup instructions | #2977, #2958, #2957 | 4 regressions; documented CLI, pinned real optional memory package, no fabricated scheduling server |
 
 Plugin dependency handling does not bundle or automatically install modules.
 Database and schema-validation features still require declared runtime packages.
-The high-priority installer and manual Claude registration candidates remain
-under independent review and have not yet been included in this integration.
+The installer, PowerShell, and manual Claude registration fixes are now combined
+and independently reviewed. Conflict resolutions preserve both project-scoped
+exemptions and PowerShell enforcement, plus Claude settings locking and installer
+ownership/checkpoint protections. Focused combined suites pass.
+
+Claude settings pathname checks detect observed parent swaps and concurrent
+edits; they are not a native filesystem isolation boundary. The residual race
+between a final check and rename remains a follow-up, not a race-free claim.
+Successful managed-file upgrades retain their existing replacement semantics.
 
 ## Completion evidence
 
-Pending integration, hosted validation, signed tag, publication, registry
+First batch 82bfd225 passed 4,215/4,215 tests and lint. Integrated full validation
+and hosted checks are pending. Signing remains unavailable locally.
+
+Pending final hosted validation, signed tag, publication, registry
 integrity readback, and clean lifecycle canaries. This document does not claim
 that 2.2.1 has shipped.
