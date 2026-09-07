@@ -206,6 +206,109 @@ test('does not resolve earlier invocations from later scalar assignments', () =>
   expectSafe('$payload = "Write-Output ok"; pwsh -Command "$payload"');
 });
 
+test('resolves scalar values supplied to aliases and shell stdin', () => {
+  for (const command of [
+    "$cmd='Remove-Item'; Set-Alias zap $cmd; zap -Force C:/tmp/demo",
+    "$cmd='Remove-Item'; New-Alias -Name zap -Value $cmd; zap -Force C:/tmp/demo",
+    "$cmd='Remove-Item'; Set-Alias -Name zap -Value:$cmd; zap -Force C:/tmp/demo",
+    '$cmd=\'Remove-Item\'; Set-Alias zap "$cmd"; zap -Force C:/tmp/demo',
+    "$payload='Remove-Item -Force C:/tmp/demo'; $payload | pwsh -Command -",
+    "$payload='Remove-Item -Force C:/tmp/demo'; Write-Output $payload | pwsh -Command -",
+    '$payload=\'Remove-Item -Force C:/tmp/demo\'; "$payload" | pwsh -Command -',
+    '$payload=\'Remove-Item -Force C:/tmp/demo\'; Write-Output "$payload" | pwsh -Command -',
+  ]) {
+    expectRules(command, [RULES.REMOVE_FORCE]);
+  }
+  expectSafe('Set-Alias zap $runtimeCommand');
+  expectSafe("$cmd='Write-Output'; Set-Alias zap $cmd; zap ok");
+  expectSafe("$payload='Write-Output ok'; $payload | pwsh -Command -");
+  expectSafe("$payload='Remove-Item -Force C:/tmp/demo'; '$payload' | pwsh -Command -");
+  expectSafe("$cmd='Remove-Item'; Set-Alias zap '$cmd'; zap -Force C:/tmp/demo");
+});
+
+test('binds remaining alias positional arguments after named parameters', () => {
+  for (const definition of [
+    'Set-Alias -Name zap $cmd',
+    'New-Alias -Name:zap $cmd',
+    'Set-Alias -Value $cmd zap',
+    'New-Alias zap -Value:$cmd',
+  ]) {
+    expectRules(`$cmd='Remove-Item'; ${definition}; zap -Force C:/tmp/demo`, [
+      RULES.REMOVE_FORCE,
+    ]);
+    expectRules(`${definition}; zap -Force C:/tmp/demo`, [RULES.DYNAMIC_EXECUTION]);
+    expectRules(`${definition}; zap -Force C:/tmp/demo; $cmd='Write-Output'`, [
+      RULES.DYNAMIC_EXECUTION,
+    ]);
+    expectSafe(`$cmd='Write-Output'; ${definition}; zap ok`);
+    expectSafe(definition);
+  }
+  expectRules('Set-Alias -Name zap Remove-Item; zap -Force C:/tmp/demo', [RULES.REMOVE_FORCE]);
+  expectRules('Set-Alias -Value Remove-Item zap; zap -Force C:/tmp/demo', [RULES.REMOVE_FORCE]);
+  expectSafe("$cmd='Remove-Item'; Set-Alias -Name zap '$cmd'; zap -Force C:/tmp/demo");
+});
+
+test('binds alias auxiliary parameters independently of their layout', () => {
+  const parameters = [
+    '-Scope Global', '-Sc:Global', '-Description demo', '-Desc:demo',
+    '-Option AllScope', '-Opt:AllScope', '-Option ReadOnly, Private',
+    '-Force', '-Fo:$false', '-PassThru', '-Pass:$false',
+    '-Verbose', '-vb:$false', '-Debug', '-db:$false',
+    '-Confirm:$false', '-cf:$false', '-WhatIf:$false', '-wi:$false',
+    '-ErrorAction Stop', '-ea:Stop', '-WarningAction Continue', '-wa:Continue',
+    '-InformationAction Continue', '-infa:Continue', '-ProgressAction Continue',
+    '-proga:Continue', '-ErrorVariable errors', '-ev:errors',
+    '-WarningVariable warnings', '-wv:warnings', '-InformationVariable info', '-iv:info',
+    '-OutVariable output', '-ov:output', '-OutBuffer 1', '-ob:1',
+    '-PipelineVariable item', '-pv:item',
+  ];
+  for (const command of ['Set-Alias', 'New-Alias', 'sal', 'nal']) {
+    for (const parameter of parameters) {
+      for (const args of [
+        `${parameter} -Name zap $cmd`,
+        `-Name zap ${parameter} $cmd`,
+        `-Name zap $cmd ${parameter}`,
+        `${parameter} zap -Value $cmd`,
+        `${parameter} zap $cmd`,
+      ]) {
+        const definition = `${command} ${args}`;
+        expectRules(`$cmd='Remove-Item'; ${definition}; zap -Force C:/tmp/demo`, [RULES.REMOVE_FORCE]);
+        expectRules(`${definition}; zap -Force C:/tmp/demo`, [RULES.DYNAMIC_EXECUTION]);
+        expectSafe(`$cmd='Write-Output'; ${definition}; zap ok`);
+        expectSafe(definition);
+      }
+    }
+  }
+  expectRules('Set-Alias -Scope Global -Name zap Remove-Item; zap -Force C:/tmp/demo', [RULES.REMOVE_FORCE]);
+});
+
+test('gates invoked aliases with unsupported or ambiguous parameter binding', () => {
+  for (const definition of [
+    'Set-Alias -Unknown demo -Name zap Write-Output',
+    'Set-Alias -Unknown demo zap Write-Output',
+    'Set-Alias -Name zap -V Write-Output',
+    'Set-Alias -Name zap -Option AllScope extra Write-Output',
+    'Set-Alias -Name zap @parameters',
+  ]) {
+    expectRules(`${definition}; zap ok`, [RULES.DYNAMIC_EXECUTION]);
+    expectSafe(`${definition}; Write-Output ok`);
+  }
+});
+
+test('gates unresolved aliases and stdin without using later or reassigned scalars', () => {
+  for (const command of [
+    'Set-Alias zap $cmd; zap -Force C:/tmp/demo',
+    "Set-Alias zap $cmd; zap -Force C:/tmp/demo; $cmd='Write-Output'",
+    "$cmd='Remove-Item'; Set-Alias zap $cmd; $cmd='Write-Output'; zap -Force C:/tmp/demo",
+    '$payload | pwsh -Command -',
+    'Write-Output $payload | pwsh -Command -',
+    "$payload | pwsh -Command -; $payload='Write-Output ok'",
+    "$payload='Remove-Item -Force C:/tmp/demo'; $payload | pwsh -Command -; $payload='Write-Output ok'",
+  ]) {
+    expectRules(command, [RULES.DYNAMIC_EXECUTION]);
+  }
+});
+
 test('classifies powershell and pwsh command payloads recursively', () => {
   expectRules(
     'powershell -Command "Remove-Item -Recurse C:/tmp/demo"',

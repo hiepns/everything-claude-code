@@ -255,6 +255,10 @@ function resolveManagedHookCommands(managedHooks, targetRoot) {
   const encodedRoot = Buffer.from(targetRoot, 'utf8').toString('base64');
   const rootExpression = `Buffer.from('${encodedRoot}','base64').toString('utf8')`;
   const resolveCommand = command => {
+    // Leave invalid entries intact so managed-hook validation reports them.
+    if (typeof command !== 'string') {
+      return command;
+    }
     const resolved = command
       .split(PLUGIN_ROOT_ENV_PROLOGUE)
       .join(`var e=${rootExpression};`);
@@ -273,9 +277,11 @@ function resolveManagedHookCommands(managedHooks, targetRoot) {
         ...entry,
         hooks: entry.hooks.map(hook => ({
           ...hook,
-          ...(typeof hook.command === 'string'
+          ...(typeof hook.command === 'string' || Array.isArray(hook.command)
             ? {
-              command: resolveCommand(hook.command),
+              command: Array.isArray(hook.command)
+                ? hook.command.map(resolveCommand)
+                : resolveCommand(hook.command),
             }
             : {}),
         })),

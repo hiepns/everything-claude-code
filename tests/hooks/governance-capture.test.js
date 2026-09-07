@@ -248,6 +248,50 @@ async function runTests() {
         expectedRules: ['powershell.remove-item.force'],
       },
       {
+        command: "$cmd='Remove-Item'; Set-Alias zap $cmd; zap -Force C:/private/alias-command-sentinel",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: "$cmd='Remove-Item'; Set-Alias -Name zap $cmd; zap -Force C:/private/alias-command-sentinel",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: 'Set-Alias -Name zap Remove-Item; zap -Force C:/private/alias-command-sentinel',
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: 'Set-Alias -Name zap $cmd; zap -Force C:/private/alias-command-sentinel',
+        expectedRules: ['powershell.dynamic-execution'],
+      },
+      {
+        command: "$cmd='Remove-Item'; Set-Alias -Scope Global -Name zap $cmd; zap -Force C:/private/alias-command-sentinel",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: "$cmd='Remove-Item'; New-Alias -Description demo -Name zap $cmd; zap -Force C:/private/alias-command-sentinel",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: "$cmd='Remove-Item'; sal -Option AllScope -Name zap $cmd; zap -Force C:/private/alias-command-sentinel",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: 'Set-Alias -Unknown demo -Name zap Write-Output; zap ok',
+        expectedRules: ['powershell.dynamic-execution'],
+      },
+      {
+        command: "$payload='Remove-Item -Force C:/private/stdin-command-sentinel'; $payload | pwsh -Command -",
+        expectedRules: ['powershell.remove-item.force'],
+      },
+      {
+        command: "Set-Alias zap $cmd; zap -Force C:/private/alias-command-sentinel; $cmd='Write-Output'",
+        expectedRules: ['powershell.dynamic-execution'],
+      },
+      {
+        command: "$payload | pwsh -Command -; $payload='Write-Output ok'",
+        expectedRules: ['powershell.dynamic-execution'],
+      },
+      {
         command: 'pwsh -Command "Write-Output ready; $runtimePayload"',
         expectedRules: ['powershell.dynamic-execution'],
       },

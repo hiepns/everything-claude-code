@@ -373,9 +373,12 @@ async function applyPreflightedManagedPlan(entry) {
     : preflightManagedPlan(entry.preview.plan);
   const ownedDestinations = new Set(preview.ownershipSnapshot.destinations);
   let expectedStateFingerprint = preview.ownershipSnapshot.stateFingerprint;
-  const expectedOperations = new Map(preview.operations.map(operation => [
-    canonicalPath(operation.destinationPath), operation,
+  // Several ordered JSON merges may share one destination. Preserve each
+  // operation's preview instead of collapsing that sequence to one path entry.
+  const expectedOperations = new Map(preview.plan.operations.map((operation, index) => [
+    operation, preview.operations[index],
   ]));
+  const writtenDestinations = new Set();
   const assertStateUnchanged = () => (
     assertInstallStateUnchanged(preview.plan, expectedStateFingerprint)
   );
@@ -385,12 +388,17 @@ async function applyPreflightedManagedPlan(entry) {
   };
   const assertOperationUnchanged = operation => {
     const destination = canonicalPath(operation.destinationPath);
-    const expected = expectedOperations.get(destination);
+    const expected = expectedOperations.get(operation);
     const currentClassification = classifyManagedOperation(operation, ownedDestinations);
+    const expectedClassification = operation.kind === 'merge-json'
+      && writtenDestinations.has(destination)
+      ? 'managed-json-update'
+      : expected && expected.classification;
     if (
       !expected
       || expected.kind !== operation.kind
-      || expected.classification !== currentClassification
+      || canonicalPath(expected.destinationPath) !== destination
+      || expectedClassification !== currentClassification
     ) {
       throw new Error(
         `Refusing to write ${operation.destinationPath}: destination changed after Kimi preflight.`
@@ -412,6 +420,7 @@ async function applyPreflightedManagedPlan(entry) {
       assertStateUnchanged();
       const destination = assertOperationUnchanged(operation);
       ownedDestinations.add(destination);
+      writtenDestinations.add(destination);
     },
     beforeInstallStateWrite: prepareInstallStateWrite,
   });

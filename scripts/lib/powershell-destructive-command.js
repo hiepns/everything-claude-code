@@ -58,6 +58,21 @@ const START_PROCESS_SWITCH_PARAMETERS = new Set([
   'usenewenvironment',
   'wait',
 ]);
+const ALIAS_VALUE_PARAMETERS = new Set([
+  'name', 'value', 'description', 'option', 'scope',
+  'erroraction', 'warningaction', 'informationaction', 'progressaction',
+  'errorvariable', 'warningvariable', 'informationvariable',
+  'outvariable', 'outbuffer', 'pipelinevariable',
+]);
+const ALIAS_SWITCH_PARAMETERS = new Set([
+  'force', 'passthru', 'whatif', 'confirm', 'verbose', 'debug',
+]);
+const ALIAS_PARAMETER_ABBREVIATIONS = Object.freeze({
+  ea: 'erroraction', wa: 'warningaction', infa: 'informationaction', proga: 'progressaction',
+  ev: 'errorvariable', wv: 'warningvariable', iv: 'informationvariable',
+  ov: 'outvariable', ob: 'outbuffer', pv: 'pipelinevariable',
+  wi: 'whatif', cf: 'confirm', vb: 'verbose', db: 'debug',
+});
 const MAX_SCAN_DEPTH = 4;
 const MAX_CONTEXT_LENGTH = 4096;
 const DYNAMIC_EXECUTION_MARKER = '__ecc_dynamic_execution__';
@@ -1225,16 +1240,22 @@ function addNestedScan(payload, depth, findings, analysis, options = {}, scanSta
   scanPowerShell(payload, depth + 1, findings, analysis, options, scanState);
 }
 
-function staticPipelineInput(tokens) {
+function staticTokenValue(tokens, index, state, findings, inline = false) {
+  const value = inline ? parameterValue(tokens[index]) : tokens[index];
+  const quoteKind = inline ? tokens.inlineValueQuoteKinds?.[index] : tokens.quoteKinds?.[index];
+  if (quoteKind === "'") return value;
+  const source = inline
+    ? parameterValue(tokens.tokenSources?.[index] || tokens[index])
+    : tokens.tokenSources?.[index] ?? value;
+  return expandStaticDoubleQuotedString(source, state, findings);
+}
+
+function staticPipelineInput(tokens, state, findings) {
   if (!tokens || tokens.length === 0) return null;
-  if (tokens.length === 1) {
-    const value = String(tokens[0] || '');
-    return value || null;
-  }
+  if (tokens.length === 1) return staticTokenValue(tokens, 0, state, findings);
   const command = commandBasename(tokens[0]);
   if ((command === 'write-output' || command === 'echo') && tokens.length === 2) {
-    const value = String(tokens[1] || '');
-    return tokens.quotedTokens?.[1] === true || /\s/.test(value) ? value : null;
+    return staticTokenValue(tokens, 1, state, findings);
   }
   return null;
 }
@@ -1272,7 +1293,7 @@ function scanNestedPowerShell(tokens, depth, findings, analysis, scanState, upst
       let payload = inlinePayload
         ? [inlinePayload, ...tokens.slice(index + 1)].join(' ')
         : tokens.slice(index + 1).join(' ');
-      const pipelinePayload = payload === '-' ? staticPipelineInput(upstreamTokens) : null;
+      const pipelinePayload = payload === '-' ? staticPipelineInput(upstreamTokens, scanState, findings) : null;
       const payloadIndex = index + 1;
       const inlineQuoteKind = tokens.inlineValueQuoteKinds?.[index];
       if (inlinePayload && inlineQuoteKind !== "'") {
@@ -1754,26 +1775,70 @@ function scanScriptBlockConsumer(tokens, quotedTokens, findings, state) {
   }
 }
 
-function staticAliasDefinition(tokens, quotedTokens = []) {
-  let name = null;
-  let value = null;
+function aliasParameterName(token) {
+  const name = String(token).replace(/^-+/, '').split(':')[0].toLowerCase();
+  if (Object.hasOwn(ALIAS_PARAMETER_ABBREVIATIONS, name)) return ALIAS_PARAMETER_ABBREVIATIONS[name];
+  const parameters = [...ALIAS_VALUE_PARAMETERS, ...ALIAS_SWITCH_PARAMETERS];
+  if (parameters.includes(name)) return name;
+  const matches = parameters.filter(parameter => name && parameter.startsWith(name));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function aliasArguments(tokens, quotedTokens) {
+  const named = new Map();
   const positional = [];
+  let ambiguous = false;
   for (let index = 1; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (!quotedTokens[index] && isParameterPrefix(token, 'name')) {
-      name = parameterValue(token) || tokens[++index] || null;
-    } else if (!quotedTokens[index] && isParameterPrefix(token, 'value')) {
-      value = parameterValue(token) || tokens[++index] || null;
-    } else if (!String(token).startsWith('-')) {
-      positional.push(token);
+    const token = String(tokens[index]);
+    if (quotedTokens[index] || !token.startsWith('-')) {
+      positional.push({ index, inline: false });
+      if (!quotedTokens[index] && token.startsWith('@')) ambiguous = true;
+      continue;
+    }
+    const parameter = aliasParameterName(token);
+    if (!parameter) {
+      ambiguous = true;
+      continue;
+    }
+    if (named.has(parameter)) ambiguous = true;
+    const inline = token.includes(':');
+    const argument = { index: ALIAS_VALUE_PARAMETERS.has(parameter) && !inline ? ++index : index, inline };
+    if (ALIAS_VALUE_PARAMETERS.has(parameter) && tokens[argument.index] === undefined) ambiguous = true;
+    named.set(parameter, argument);
+    // Option accepts a comma-separated array; its continuation belongs to the
+    // named parameter rather than the remaining positional name/value slots.
+    if (parameter === 'option') {
+      while (index + 1 < tokens.length && !quotedTokens[index] &&
+          (String(tokens[index]).endsWith(',') || String(tokens[index + 1]).startsWith(','))) index += 1;
     }
   }
-  name ||= positional[0] || null;
-  value ||= positional[1] || null;
-  if (!/^[A-Za-z_][\w-]*$/.test(name || '') || !/^[A-Za-z_][\w./\\-]*$/.test(value || '')) {
-    return null;
-  }
-  return { name: name.toLowerCase(), value };
+  return { named, positional, ambiguous };
+}
+
+function staticAliasDefinitions(tokens, quotedTokens, state) {
+  const args = aliasArguments(tokens, quotedTokens);
+  // Definitions stay inert. Uncertain binding is gated only when a candidate
+  // alias is invoked, without allowing auxiliary values to hide its target.
+  const unresolved = new Set();
+  const resolve = argument => argument
+    ? staticTokenValue(tokens, argument.index, state, unresolved, argument.inline)
+    : null;
+  let positionalIndex = 0;
+  const nameArgument = args.named.get('name') || args.positional[positionalIndex++];
+  const valueArgument = args.named.get('value') || args.positional[positionalIndex++];
+  const name = resolve(nameArgument);
+  const value = resolve(valueArgument);
+  const ambiguous = args.ambiguous || positionalIndex < args.positional.length;
+  const possibleNames = args.named.has('value') ? args.positional : args.positional.slice(0, -1);
+  const names = ambiguous && !args.named.has('name')
+    ? [name, ...possibleNames.map(resolve)]
+    : [name];
+  const target = ambiguous || value === null || /^@/.test(value)
+    ? DYNAMIC_EXECUTION_MARKER
+    : value;
+  if (!/^[A-Za-z_][\w./\\-]*$/.test(target || '')) return [];
+  return [...new Set(names.filter(candidate => /^[A-Za-z_][\w-]*$/.test(candidate || '')))]
+    .map(candidate => ({ name: candidate.toLowerCase(), value: target }));
 }
 
 function scanInvokeScriptCalls(source, unquoted, depth, findings, analysis, state) {
@@ -1862,9 +1927,10 @@ function scanPowerShell(command, depth, findings, analysis = null, options = {},
           state
         );
       }
-      if (commandName === 'set-alias' || commandName === 'new-alias') {
-        const definition = staticAliasDefinition(tokens, executable.quotedTokens);
-        if (definition) state.aliases.set(definition.name, definition.value);
+      if (['set-alias', 'new-alias', 'sal', 'nal'].includes(commandName)) {
+        for (const definition of staticAliasDefinitions(tokens, executable.quotedTokens, state)) {
+          state.aliases.set(definition.name, definition.value);
+        }
       }
       const classInvocation = commandName.match(/^\[([a-z_][\w-]*)\]::/i);
       if (classInvocation) recordInvocation(state, `__class__:${classInvocation[1].toLowerCase()}`);

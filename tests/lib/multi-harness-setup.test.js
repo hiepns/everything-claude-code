@@ -601,6 +601,44 @@ function writeManagedState(plan, overrides = {}) {
     }
   });
 
+  for (const existing of [false, true]) {
+    await test(`applies ordered JSON merges to the same ${existing ? 'existing' : 'new'} destination`, async () => {
+      const root = tempDir('ecc-guided-repeated-json-');
+      const projection = require('../../scripts/lib/install-state-store-sync');
+      const originalProjection = projection.projectCanonicalInstallState;
+      projection.projectCanonicalInstallState = async () => ({ status: 'projected' });
+      try {
+        const destination = path.join(root, '.kimi-code', 'mcp.json');
+        if (existing) writeFile(destination, JSON.stringify({ userSetting: true }));
+        const plan = managedPlan(root, [
+          stateOperation(destination, {
+            kind: 'merge-json',
+            mergePayload: { servers: { first: { command: 'first' } }, sequence: 'first' },
+            strategy: 'merge-json',
+          }),
+          stateOperation(destination, {
+            kind: 'merge-json',
+            mergePayload: { servers: { second: { command: 'second' } }, sequence: 'second' },
+            strategy: 'merge-json',
+          }),
+        ]);
+        const result = await applyMultiHarnessPlan({
+          harnesses: [{ id: 'kimi', preview: preflightManagedPlan(plan) }],
+          request: { harnesses: ['kimi'] },
+        });
+        assert.strictEqual(result.status, 'complete', JSON.stringify(result.failure));
+        assert.deepStrictEqual(JSON.parse(fs.readFileSync(destination, 'utf8')), {
+          ...(existing ? { userSetting: true } : {}),
+          servers: { first: { command: 'first' }, second: { command: 'second' } },
+          sequence: 'second',
+        });
+      } finally {
+        projection.projectCanonicalInstallState = originalProjection;
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
   await test('refuses conflicting JSON created after preview but before apply', async () => {
     const root = tempDir('ecc-guided-late-json-collision-');
     try {

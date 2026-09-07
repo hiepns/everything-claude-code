@@ -93,8 +93,9 @@ and signing evidence are tracked separately in the release checklist.
 
 ## Upgrade
 
-Install or update the published package, then run the same ECC command path you
-already use:
+After the release workflow publishes 2.2.1 and verifies registry integrity,
+install or update the package, then run the same ECC command path you already
+use. Until publication completes, the exact-version command below returns E404.
 
 ```bash
 npm install -g ecc-universal@2.2.1

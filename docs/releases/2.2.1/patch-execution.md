@@ -106,3 +106,29 @@ after the guided-setup integration repair. Signing remains unavailable locally.
 Pending final hosted validation, signed tag, publication, registry
 integrity readback, and clean lifecycle canaries. This document does not claim
 that 2.2.1 has shipped.
+
+## Resumed verification, September 7
+
+The secure GitHub gateway authenticated as an authorized repository maintainer.
+All GitHub API requests in this continuation use that gateway. No local
+credential inspection or signing-key discovery is part of this continuation.
+The v2.2.1 tag and release are absent; npm returns E404 for 2.2.1 and still
+reports latest 2.2.0.
+
+The ba3a64a2 hosted run passed coverage, lint, CodeQL, and Linux tests, but nine
+Windows test jobs failed. Gateway downloads for both job logs and test artifacts
+returned HTTP 401 from redirected storage. Check metadata confirms failures
+occur during tests after successful dependency installation. Failed-suite
+annotations now expose bounded diagnostic context through the checks API.
+The runner also counts subprocess failure when a suite prints `Failed: 0`.
+Seven isolated runner regressions pass.
+
+Follow-up review reproduced additional release defects. Ordered JSON merges
+to one Kimi destination were collapsed by destination-only preview indexing;
+operation-specific previews preserve the supported merge sequence (24 focused
+tests pass). Array-form Claude commands now receive the same plugin-root
+materialization as strings, including rejection of unresolved reads (seven new
+and 36 existing settings tests pass). Static PowerShell alias and stdin values
+are resolved conservatively, with independent review covering mixed named and
+positional alias arguments. Hosted verification on the final patch remains
+required before merge or release.
