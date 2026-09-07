@@ -55,7 +55,7 @@ function assertAtomicParentReplacementRejected(stage) {
   const victimRoot = path.join(tempDir, 'victim');
   const settingsPath = path.join(targetRoot, 'settings.json');
   const victimPath = path.join(victimRoot, 'settings.json');
-  const originalOpen = fs.openSync;
+  const originalFsync = fs.fsyncSync;
   const originalClose = fs.closeSync;
   const targetContent = '{"target":true}\n';
   const victimContent = '{"victim":"preserve"}\n';
@@ -83,28 +83,20 @@ function assertAtomicParentReplacementRejected(stage) {
     fs.mkdirSync(victimRoot);
     fs.writeFileSync(settingsPath, targetContent);
     fs.writeFileSync(victimPath, victimContent);
-    fs.openSync = function(file, flags, ...args) {
-      const isTemp = typeof file === 'string'
-        && path.dirname(path.resolve(file)) === targetRoot
-        && path.basename(file).startsWith('.settings.json.') && file.endsWith('.tmp');
-      if (isTemp) tempBasename = path.basename(file);
-      if (isTemp && !replaced && stage === 'open') {
-        // Replace immediately after the temporary descriptor has been created.
-        const descriptor = originalOpen.call(fs, file, flags, ...args);
+    fs.fsyncSync = function(descriptor) {
+      const result = originalFsync.call(fs, descriptor);
+      const stagedName = fs.readdirSync(targetRoot).find(name => (
+        name.startsWith('.settings.json.') && name.endsWith('.tmp')
+      ));
+      if (stagedName) {
+        tempBasename = stagedName;
         tempDescriptor = descriptor;
-        try {
-          replaceParent();
-        } catch (error) {
-          // The writer has not received this handle yet. If Windows refuses
-          // the directory rename, the fixture must close its own descriptor.
-          originalClose.call(fs, descriptor);
-          throw error;
-        }
-        return descriptor;
+        // Exercise replacement while the staging handle is still open. The
+        // production writer owns the descriptor and closes it on rejection.
+        // Intercept fsync rather than forwarding arbitrary file-creation flags.
+        if (!replacementAttempted && stage === 'open') replaceParent();
       }
-      const descriptor = originalOpen.call(fs, file, flags, ...args);
-      if (isTemp) tempDescriptor = descriptor;
-      return descriptor;
+      return result;
     };
     fs.closeSync = function(descriptor) {
       const result = originalClose.call(fs, descriptor);
@@ -134,7 +126,7 @@ function assertAtomicParentReplacementRejected(stage) {
       assert.strictEqual(fs.readFileSync(path.join(victimRoot, tempBasename), 'utf8'), 'unrelated replacement file');
     }
   } finally {
-    fs.openSync = originalOpen;
+    fs.fsyncSync = originalFsync;
     fs.closeSync = originalClose;
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

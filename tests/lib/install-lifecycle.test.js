@@ -3512,8 +3512,13 @@ function runTests() {
       });
 
       assert.strictEqual(result.results[0].status, 'repaired');
-      assert.strictEqual(fs.statSync(settingsPath).mode & 0o777, 0o600);
-      assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).hooks, managedHooks);
+      const descriptor = fs.openSync(settingsPath, 'r');
+      try {
+        assert.strictEqual(fs.fstatSync(descriptor).mode & 0o777, 0o600);
+        assert.deepStrictEqual(JSON.parse(fs.readFileSync(descriptor, 'utf8')).hooks, managedHooks);
+      } finally {
+        fs.closeSync(descriptor);
+      }
     } finally {
       cleanup(homeDir);
       cleanup(projectRoot);

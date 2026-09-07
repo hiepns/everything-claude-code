@@ -10,7 +10,7 @@ const blocks = [...source.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map(match => ma
 const checks = [
   ['executable examples omit unpublished packages and the invented dispatch endpoint', () => {
     assert.doesNotMatch(blocks, /@anthropic\/(?:memory|scheduled-tasks|computer-use)-mcp-server/);
-    assert.doesNotMatch(blocks, /api\.anthropic\.com\/dispatch/);
+    assert.ok(!blocks.includes('api.anthropic.com/dispatch'));
   }],
   ['CLI examples use the working directory and native session scheduling', () => {
     assert.doesNotMatch(blocks, /--project\b|mcp__scheduled-tasks__/);
